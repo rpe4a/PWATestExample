@@ -1,25 +1,74 @@
-// Copyright 2016 Google Inc.
-// 
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-// 
-//      http://www.apache.org/licenses/LICENSE-2.0
-// 
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-
-(function() {
+(function () {
   'use strict';
+
+  var initialWeatherForecast = {
+    key: '2459115',
+    label: 'New York, NY',
+    created: '2016-07-22T01:00:00Z',
+    channel: {
+      astronomy: {
+        sunrise: "5:43 am",
+        sunset: "8:21 pm"
+      },
+      item: {
+        condition: {
+          text: "Windy",
+          date: "Thu, 21 Jul 2016 09:00 PM EDT",
+          temp: 56,
+          code: 24
+        },
+        forecast: [{
+            code: 44,
+            high: 86,
+            low: 70
+          },
+          {
+            code: 44,
+            high: 94,
+            low: 73
+          },
+          {
+            code: 4,
+            high: 95,
+            low: 78
+          },
+          {
+            code: 24,
+            high: 75,
+            low: 89
+          },
+          {
+            code: 24,
+            high: 89,
+            low: 77
+          },
+          {
+            code: 44,
+            high: 92,
+            low: 79
+          },
+          {
+            code: 44,
+            high: 89,
+            low: 77
+          }
+        ]
+      },
+      atmosphere: {
+        humidity: 56
+      },
+      wind: {
+        speed: 25,
+        direction: 195
+      }
+    }
+  };
 
   var app = {
     isLoading: true,
     visibleCards: {},
     selectedCities: [],
+    hasRequestPending: false,
     spinner: document.querySelector('.loader'),
     cardTemplate: document.querySelector('.cardTemplate'),
     container: document.querySelector('.main'),
@@ -34,17 +83,17 @@
    *
    ****************************************************************************/
 
-  document.getElementById('butRefresh').addEventListener('click', function() {
+  document.getElementById('butRefresh').addEventListener('click', function () {
     // Refresh all of the forecasts
     app.updateForecasts();
   });
 
-  document.getElementById('butAdd').addEventListener('click', function() {
+  document.getElementById('butAdd').addEventListener('click', function () {
     // Open/show the add new city dialog
     app.toggleAddDialog(true);
   });
 
-  document.getElementById('butAddCity').addEventListener('click', function() {
+  document.getElementById('butAddCity').addEventListener('click', function () {
     // Add the newly selected city
     var select = document.getElementById('selectCityToAdd');
     var selected = select.options[select.selectedIndex];
@@ -52,11 +101,18 @@
     var label = selected.textContent;
     // TODO init the app.selectedCities array here
     app.getForecast(key, label);
+
     // TODO push the selected city to the array and save here
+    app.selectedCities.push({
+      key: key,
+      label: label
+    })
+    app.saveSelectedCities()
+
     app.toggleAddDialog(false);
   });
 
-  document.getElementById('butAddCancel').addEventListener('click', function() {
+  document.getElementById('butAddCancel').addEventListener('click', function () {
     // Close the add new city dialog
     app.toggleAddDialog(false);
   });
@@ -69,7 +125,7 @@
    ****************************************************************************/
 
   // Toggles the visibility of the add new city dialog.
-  app.toggleAddDialog = function(visible) {
+  app.toggleAddDialog = function (visible) {
     if (visible) {
       app.addDialog.classList.add('dialog-container--visible');
     } else {
@@ -79,7 +135,7 @@
 
   // Updates a weather card with the latest weather forecast. If the card
   // doesn't already exist, it's cloned from the template.
-  app.updateForecastCard = function(data) {
+  app.updateForecastCard = function (data) {
     var dataLastUpdated = new Date(data.created);
     var sunrise = data.channel.astronomy.sunrise;
     var sunset = data.channel.astronomy.sunset;
@@ -161,15 +217,31 @@
    * request goes through, then the card gets updated a second time with the
    * freshest data.
    */
-  app.getForecast = function(key, label) {
+  app.getForecast = function (key, label) {
     var statement = 'select * from weather.forecast where woeid=' + key;
     var url = 'https://query.yahooapis.com/v1/public/yql?format=json&q=' +
-        statement;
+      statement;
     // TODO add cache logic here
-
+    if ('caches' in window) {
+      caches.match(url).then(function (response) {
+        if (response) {
+          response.json().then(function (json) {
+            // Only update if the XHR is still pending, otherwise the XHR
+            // has already returned and provided the latest data.
+            if (app.hasRequestPending) {
+              console.log('updated from cache');
+              json.key = key;
+              json.label = label;
+              app.updateForecastCard(json);
+            }
+          });
+        }
+      });
+    }
     // Fetch the latest data.
     var request = new XMLHttpRequest();
-    request.onreadystatechange = function() {
+    request.onreadystatechange = function () {
+      app.hasRequestPending = true;
       if (request.readyState === XMLHttpRequest.DONE) {
         if (request.status === 200) {
           var response = JSON.parse(request.response);
@@ -177,6 +249,7 @@
           results.key = key;
           results.label = label;
           results.created = response.query.created;
+          app.hasRequestPending = false;
           app.updateForecastCard(results);
         }
       } else {
@@ -189,16 +262,20 @@
   };
 
   // Iterate all of the cards and attempt to get the latest forecast data
-  app.updateForecasts = function() {
+  app.updateForecasts = function () {
     var keys = Object.keys(app.visibleCards);
-    keys.forEach(function(key) {
+    keys.forEach(function (key) {
       app.getForecast(key);
     });
   };
 
   // TODO add saveSelectedCities function here
+  app.saveSelectedCities = function () {
+    var selectedCities = JSON.stringify(app.selectedCities);
+    localStorage.selectedCities = selectedCities;
+  };
 
-  app.getIconClass = function(weatherCode) {
+  app.getIconClass = function (weatherCode) {
     // Weather codes: https://developer.yahoo.com/weather/documentation.html#codes
     weatherCode = parseInt(weatherCode);
     switch (weatherCode) {
@@ -261,51 +338,53 @@
         return 'partly-cloudy-day';
     }
   };
-
   /*
    * Fake weather data that is presented when the user first uses the app,
    * or when the user has not saved any cities. See startup code for more
    * discussion.
    */
-  var initialWeatherForecast = {
-    key: '2459115',
-    label: 'New York, NY',
-    created: '2016-07-22T01:00:00Z',
-    channel: {
-      astronomy: {
-        sunrise: "5:43 am",
-        sunset: "8:21 pm"
-      },
-      item: {
-        condition: {
-          text: "Windy",
-          date: "Thu, 21 Jul 2016 09:00 PM EDT",
-          temp: 56,
-          code: 24
-        },
-        forecast: [
-          {code: 44, high: 86, low: 70},
-          {code: 44, high: 94, low: 73},
-          {code: 4, high: 95, low: 78},
-          {code: 24, high: 75, low: 89},
-          {code: 24, high: 89, low: 77},
-          {code: 44, high: 92, low: 79},
-          {code: 44, high: 89, low: 77}
-        ]
-      },
-      atmosphere: {
-        humidity: 56
-      },
-      wind: {
-        speed: 25,
-        direction: 195
-      }
-    }
-  };
+
   // TODO uncomment line below to test app with fake data
   //app.updateForecastCard(initialWeatherForecast);
 
   // TODO add startup code here
 
   // TODO add service worker code here
+
+
+
+
+  /************************************************************************
+   *
+   * Code required to start the app
+   *
+   * NOTE: To simplify this codelab, we've used localStorage. 
+   *   localStorage is a synchronous API and has serious performance
+   *   implications. It should not be used in production applications!
+   *   Instead, check out IDB (https://www.npmjs.com/package/idb) or
+   *   SimpleDB (https://gist.github.com/inexorabletash/c8069c042b734519680c)
+   ************************************************************************/
+
+  app.selectedCities = localStorage.selectedCities;
+  if (app.selectedCities) {
+    app.selectedCities = JSON.parse(app.selectedCities);
+    app.selectedCities.forEach(function (city) {
+      app.getForecast(city.key, city.label);
+    });
+  } else {
+    app.updateForecastCard(initialWeatherForecast);
+    app.selectedCities = [{
+      key: initialWeatherForecast.key,
+      label: initialWeatherForecast.label
+    }];
+    app.saveSelectedCities();
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker
+      .register('./service-worker.js')
+      .then(function () {
+        console.log('Service Worker Registered');
+      });
+  }
 })();
